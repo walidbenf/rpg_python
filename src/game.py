@@ -3,7 +3,8 @@ Module principal du jeu - Gestion de la logique de jeu (Roguelike)
 """
 import pygame
 import random
-from .character import Character
+import os
+from .character import Character, ImageCharacter
 from .ui import Button
 from .constants import (
     SCREEN_WIDTH, SCREEN_HEIGHT, WHITE, BLACK, RED, GREEN, BLUE,
@@ -53,20 +54,36 @@ class Game:
         self.potions = STARTING_POTIONS
 
         # État du jeu
-        self.state = "player_turn"  # player_turn, enemy_turn, victory, rewards, game_over
+        self.state = "player_turn"  # player_turn, enemy_turn, victory, rewards, game_over, pause
         self.message = f"Étage {self.floor} - À l'attaque !"
         self.message_timer = MESSAGE_DURATION
+        self.return_to_menu = False  # Flag pour signaler le retour au menu
 
         # Boutons
         self.action_buttons = []
         self.reward_buttons = []
+        self.pause_buttons = []
         self._create_action_buttons()
+        self._create_pause_buttons()
 
     def _init_player(self):
         """Initialise ou réinitialise le joueur"""
         if self.player is None:
-            self.player = Character("Héros", self.base_hp, self.base_hp,
-                                   self.base_attack, self.base_defense, PLAYER_X, PLAYER_Y)
+            # Chemin vers l'image du personnage
+            image_path = os.path.join("assets", "fonts", "characters", "rogue-mage.png")
+
+            # Créer le joueur avec l'image
+            self.player = ImageCharacter(
+                "Rogue Mage",
+                self.base_hp,
+                self.base_hp,
+                self.base_attack,
+                self.base_defense,
+                PLAYER_X,
+                PLAYER_Y,
+                image_path,
+                scale=3  # Ajustez la taille selon vos besoins
+            )
         else:
             # Conserve les stats actuelles pour la progression
             self.player.x = PLAYER_X
@@ -138,6 +155,19 @@ class Game:
                 Button(center_x - 85, button_y + button_spacing, 160, 70,
                       "+2 Potions", GREEN, (100, 255, 100), self.font_medium)
             )
+
+    def _create_pause_buttons(self):
+        """Crée les boutons du menu pause"""
+        center_x = SCREEN_WIDTH // 2
+        button_y = 250
+        button_spacing = 100
+
+        self.pause_buttons = [
+            Button(center_x - 125, button_y, 250, 60, "Reprendre", GREEN,
+                  (100, 255, 100), self.font_medium),
+            Button(center_x - 125, button_y + button_spacing, 250, 60,
+                  "Retour au Menu", RED, (255, 100, 100), self.font_medium),
+        ]
 
     def update_potion_button(self):
         """Met à jour le texte du bouton potion"""
@@ -302,14 +332,29 @@ class Game:
 
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    return False
+                    # Basculer entre pause et jeu
+                    if self.state == "pause":
+                        self.state = self.previous_state
+                    elif self.state in ["player_turn", "enemy_turn", "victory", "rewards"]:
+                        self.previous_state = self.state
+                        self.state = "pause"
 
                 # Redémarrer avec ESPACE
                 if event.key == pygame.K_SPACE and (self.state == "game_over" or self.state == "victory_final"):
                     self.reset_game()
 
+            # Gestion du menu pause
+            if self.state == "pause":
+                for i, button in enumerate(self.pause_buttons):
+                    if button.handle_event(event):
+                        if i == 0:  # Reprendre
+                            self.state = self.previous_state
+                        elif i == 1:  # Retour au menu
+                            self.return_to_menu = True
+                        break
+
             # Gestion des boutons d'action
-            if self.state == "player_turn":
+            elif self.state == "player_turn":
                 for i, button in enumerate(self.action_buttons):
                     if button.handle_event(event):
                         actions = ["attack", "defend", "potion"]
@@ -411,13 +456,17 @@ class Game:
         elif self.state == "victory_final":
             self._draw_victory()
 
+        # Menu pause
+        elif self.state == "pause":
+            self._draw_pause_menu()
+
         # Instructions
         if self.state in ["game_over", "victory_final"]:
             restart_text = self.font_small.render("Appuie sur ESPACE pour recommencer", True, WHITE)
             restart_rect = restart_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 30))
             self.screen.blit(restart_text, restart_rect)
-        else:
-            help_text = self.font_small.render("ESC pour quitter", True, GRAY)
+        elif self.state != "pause":
+            help_text = self.font_small.render("ESC pour menu pause", True, GRAY)
             self.screen.blit(help_text, (10, SCREEN_HEIGHT - 30))
 
         pygame.display.flip()
@@ -462,3 +511,25 @@ class Game:
             stat_surface = self.font_medium.render(stat, True, WHITE)
             stat_rect = stat_surface.get_rect(center=(center_x, start_y + i * spacing))
             self.screen.blit(stat_surface, stat_rect)
+
+    def _draw_pause_menu(self):
+        """Dessine le menu pause"""
+        # Overlay semi-transparent
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        overlay.set_alpha(180)
+        overlay.fill(BLACK)
+        self.screen.blit(overlay, (0, 0))
+
+        # Titre
+        title = self.font_large.render("PAUSE", True, GOLD)
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 150))
+        self.screen.blit(title, title_rect)
+
+        # Dessiner les boutons
+        for button in self.pause_buttons:
+            button.draw(self.screen)
+
+        # Instruction
+        help_text = self.font_small.render("ESC pour reprendre", True, WHITE)
+        help_rect = help_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 50))
+        self.screen.blit(help_text, help_rect)
